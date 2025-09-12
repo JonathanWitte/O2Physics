@@ -1207,6 +1207,11 @@ struct AnalysisSameEventPairing {
     // TODO: Add pair cuts via JSON
   } fConfigCuts;
 
+  // Adding configurables for mass cut and track plots
+  Configurable<float> fConfigPairMassMin{"cfgPairMassMin", 0.0, "Minimum mass for output pairs"};
+  Configurable<float> fConfigPairMassMax{"cfgPairMassMax", 999.0, "Maximum mass for output pairs"};
+  Configurable<string> fConfigAddLegTrackHistogram{"cfgAddLegTrackHistogram", "", "Comma separated list of histograms"};
+
   Configurable<int> fConfigMixingDepth{"cfgMixingDepth", 100, "Number of Events stored for event mixing"};
   // Configurable<std::string> fConfigAddEventMixingHistogram{"cfgAddEventMixingHistogram", "", "Comma separated list of histograms"};
   Configurable<std::string> fConfigAddSEPHistogram{"cfgAddSEPHistogram", "", "Comma separated list of histograms"};
@@ -1236,14 +1241,14 @@ struct AnalysisSameEventPairing {
     Configurable<bool> propTrack{"cfgPropTrack", true, "Propgate tracks to associated collision to recalculate DCA and momentum vector"};
     Configurable<bool> useRemoteCollisionInfo{"cfgUseRemoteCollisionInfo", false, "Use remote collision information from CCDB"};
   } fConfigOptions;
-
+  
   Service<o2::ccdb::BasicCCDBManager> fCCDB;
   o2::ccdb::CcdbApi fCCDBApi;
-
+  
   Filter filterEventSelected = aod::dqanalysisflags::isEventSelected > static_cast<uint8_t>(0);
-
+  
   HistogramManager* fHistMan;
-
+  
   // keep histogram class names in maps, so we don't have to buld their names in the pair loops
   std::map<int, std::vector<TString>> fTrackHistNames;
   std::map<int, std::vector<TString>> fMuonHistNames;
@@ -1251,23 +1256,23 @@ struct AnalysisSameEventPairing {
   std::vector<AnalysisCompositeCut> fPairCuts;
   std::vector<TString> fTrackCuts;
   std::map<std::pair<uint32_t, uint32_t>, uint32_t> fAmbiguousPairs;
-
+  
   uint32_t fTrackFilterMask; // mask for the track cuts required in this task to be applied on the barrel cuts produced upstream
   uint32_t fMuonFilterMask;  // mask for the muon cuts required in this task to be applied on the muon cuts produced upstream
   int fNCutsBarrel;
   int fNCutsMuon;
   int fNPairCuts;
-
+  
   bool fEnableBarrelMixingHistos;
   bool fEnableBarrelHistos;
   bool fEnableMuonHistos;
   bool fEnableMuonMixingHistos;
-
+  
   NoBinningPolicy<aod::dqanalysisflags::MixingHash> hashBin;
 
   Preslice<soa::Join<aod::ReducedTracksAssoc, aod::BarrelTrackCuts, aod::Prefilter>> trackAssocsPerCollision = aod::reducedtrack_association::reducedeventId;
   Preslice<soa::Join<aod::ReducedMuonsAssoc, aod::MuonTrackCuts>> muonAssocsPerCollision = aod::reducedtrack_association::reducedeventId;
-
+  
   void init(o2::framework::InitContext& context)
   {
     LOG(info) << "Starting initialization of AnalysisSameEventPairing (idstoreh)";
@@ -1275,7 +1280,7 @@ struct AnalysisSameEventPairing {
     fEnableBarrelMixingHistos = context.mOptions.get<bool>("processMixingAllSkimmed") || context.mOptions.get<bool>("processMixingBarrelSkimmed");
     fEnableMuonHistos = context.mOptions.get<bool>("processAllSkimmed") || context.mOptions.get<bool>("processMuonOnlySkimmed") || context.mOptions.get<bool>("processMuonOnlySkimmedMultExtra") || context.mOptions.get<bool>("processMixingMuonSkimmed");
     fEnableMuonMixingHistos = context.mOptions.get<bool>("processMixingAllSkimmed") || context.mOptions.get<bool>("processMixingMuonSkimmed");
-
+    
     if (context.mOptions.get<bool>("processDummy")) {
       if (fEnableBarrelHistos || fEnableBarrelMixingHistos || fEnableMuonHistos || fEnableMuonMixingHistos) {
         LOG(fatal) << "No other processing tasks should be enabled if the processDummy is enabled!!";
@@ -1283,12 +1288,13 @@ struct AnalysisSameEventPairing {
       return;
     }
     VarManager::SetDefaultVarNames();
-
+    
     // Keep track of all the histogram class names to avoid composing strings in the pairing loop
     TString histNames = "";
     std::vector<TString> names;
     fTrackCuts.clear();
-
+    
+    
     // NOTE: Pair cuts are only applied on the histogram output. The produced pair tables do not have these cuts applied
     TString cutNamesStr = fConfigCuts.pair.value;
     if (!cutNamesStr.IsNull()) {
@@ -1297,7 +1303,7 @@ struct AnalysisSameEventPairing {
         fPairCuts.push_back(*dqcuts::GetCompositeCut(objArray->At(icut)->GetName()));
       }
     }
-
+    
     // get the list of cuts for tracks/muons, check that they were played by the barrel/muon selection tasks
     //   and make a mask for active cuts (barrel and muon selection tasks may run more cuts, needed for other analyses)
     TString trackCutsStr = fConfigCuts.track.value;
@@ -1310,7 +1316,7 @@ struct AnalysisSameEventPairing {
     if (!muonCutsStr.IsNull()) {
       objArrayMuonCuts = muonCutsStr.Tokenize(",");
     }
-
+    
     // get the barrel track selection cuts
     string tempCuts;
     getTaskOptionValue<string>(context, "analysis-track-selection", "cfgTrackCuts", tempCuts, false);
@@ -1332,193 +1338,199 @@ struct AnalysisSameEventPairing {
         fTrackCuts.push_back(tempStr);
         if (objArrayTrackCuts->FindObject(tempStr.Data()) != nullptr) {
           fTrackFilterMask |= (static_cast<uint32_t>(1) << icut);
-
+          
           if (fEnableBarrelHistos) {
             names = {
               Form("PairsBarrelSEPM_%s", objArray->At(icut)->GetName()),
               Form("PairsBarrelSEPP_%s", objArray->At(icut)->GetName()),
               Form("PairsBarrelSEMM_%s", objArray->At(icut)->GetName())};
-            histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
-            names.push_back(Form("PairsBarrelSEPM_ambiguousextra_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsBarrelSEPP_ambiguousextra_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsBarrelSEMM_ambiguousextra_%s", objArray->At(icut)->GetName()));
-            histNames += Form("%s;%s;%s;", names[3].Data(), names[4].Data(), names[5].Data());
-            if (fEnableBarrelMixingHistos) {
-              names.push_back(Form("PairsBarrelMEPM_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsBarrelMEPP_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsBarrelMEMM_%s", objArray->At(icut)->GetName()));
-              histNames += Form("%s;%s;%s;", names[6].Data(), names[7].Data(), names[8].Data());
-            }
-            fTrackHistNames[icut] = names;
-
-            TString cutNamesStr = fConfigCuts.pair.value;
-            if (!cutNamesStr.IsNull()) { // if pair cuts
-              std::unique_ptr<TObjArray> objArrayPair(cutNamesStr.Tokenize(","));
-              fNPairCuts = objArrayPair->GetEntries();
-              for (int iPairCut = 0; iPairCut < fNPairCuts; ++iPairCut) { // loop over pair cuts
-                names = {
-                  Form("PairsBarrelSEPM_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
-                  Form("PairsBarrelSEPP_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
-                  Form("PairsBarrelSEMM_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName())};
-                histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
-                fTrackHistNames[fNCutsBarrel + icut * fNPairCuts + iPairCut] = names;
-              } // end loop (pair cuts)
-            } // end if (pair cuts)
-          } // end if enableBarrelHistos
-        }
-      }
-    }
-    LOG(info) << "Initialization of AnalysisSameEventPairing 1 (idstoreh)";
-
-    // get the muon track selection cuts
-    getTaskOptionValue<string>(context, "analysis-muon-selection", "cfgMuonCuts", tempCuts, false);
-    tempCutsStr = tempCuts;
-    // check also the cuts added via JSON and add them to the string of cuts
-    getTaskOptionValue<string>(context, "analysis-muon-selection", "cfgMuonCutsJSON", tempCuts, false);
-    TString addMuonCutsStr = tempCuts;
-    if (addMuonCutsStr != "") {
-      std::vector<AnalysisCut*> addMuonCuts = dqcuts::GetCutsFromJSON(addMuonCutsStr.Data());
-      for (auto& t : addMuonCuts) {
-        tempCutsStr += Form(",%s", t->GetName());
-      }
-    }
-
-    if (!muonCutsStr.IsNull()) {
-      std::unique_ptr<TObjArray> objArray(tempCutsStr.Tokenize(","));
-      fNCutsMuon = objArray->GetEntries();
-      for (int icut = 0; icut < objArray->GetEntries(); ++icut) {
-        TString tempStr = objArray->At(icut)->GetName();
-        if (objArrayMuonCuts->FindObject(tempStr.Data()) != nullptr) {
-          fMuonFilterMask |= (static_cast<uint32_t>(1) << icut);
-
-          if (fEnableMuonHistos) {
-            // no pair cuts
-            names = {
-              Form("PairsMuonSEPM_%s", objArray->At(icut)->GetName()),
-              Form("PairsMuonSEPP_%s", objArray->At(icut)->GetName()),
-              Form("PairsMuonSEMM_%s", objArray->At(icut)->GetName())};
-            histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
-            if (fEnableMuonMixingHistos) {
-              names.push_back(Form("PairsMuonMEPM_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEPP_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEMM_%s", objArray->At(icut)->GetName()));
+              histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
+              names.push_back(Form("PairsBarrelSEPM_ambiguousextra_%s", objArray->At(icut)->GetName()));
+              names.push_back(Form("PairsBarrelSEPP_ambiguousextra_%s", objArray->At(icut)->GetName()));
+              names.push_back(Form("PairsBarrelSEMM_ambiguousextra_%s", objArray->At(icut)->GetName()));
               histNames += Form("%s;%s;%s;", names[3].Data(), names[4].Data(), names[5].Data());
+              if (fEnableBarrelMixingHistos) {
+                names.push_back(Form("PairsBarrelMEPM_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsBarrelMEPP_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsBarrelMEMM_%s", objArray->At(icut)->GetName()));
+                histNames += Form("%s;%s;%s;", names[6].Data(), names[7].Data(), names[8].Data());
+              }
+              fTrackHistNames[icut] = names;
+              
+              TString cutNamesStr = fConfigCuts.pair.value;
+              if (!cutNamesStr.IsNull()) { // if pair cuts
+                std::unique_ptr<TObjArray> objArrayPair(cutNamesStr.Tokenize(","));
+                fNPairCuts = objArrayPair->GetEntries();
+                for (int iPairCut = 0; iPairCut < fNPairCuts; ++iPairCut) { // loop over pair cuts
+                  names = {
+                    Form("PairsBarrelSEPM_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
+                    Form("PairsBarrelSEPP_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
+                    Form("PairsBarrelSEMM_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName())};
+                    histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
+                    fTrackHistNames[fNCutsBarrel + icut * fNPairCuts + iPairCut] = names;
+                  } // end loop (pair cuts)
+                } // end if (pair cuts)
+              } // end if enableBarrelHistos
             }
-            names.push_back(Form("PairsMuonSEPM_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsMuonSEPP_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsMuonSEMM_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsMuonSEPM_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsMuonSEPP_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsMuonSEMM_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsMuonSEPM_unambiguous_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsMuonSEPP_unambiguous_%s", objArray->At(icut)->GetName()));
-            names.push_back(Form("PairsMuonSEMM_unambiguous_%s", objArray->At(icut)->GetName()));
-            histNames += Form("%s;%s;%s;", names[(fEnableMuonMixingHistos ? 6 : 3)].Data(), names[(fEnableMuonMixingHistos ? 7 : 4)].Data(), names[(fEnableMuonMixingHistos ? 8 : 5)].Data());
-            histNames += Form("%s;%s;%s;", names[(fEnableMuonMixingHistos ? 9 : 6)].Data(), names[(fEnableMuonMixingHistos ? 10 : 7)].Data(), names[(fEnableMuonMixingHistos ? 11 : 8)].Data());
-            histNames += Form("%s;%s;%s;", names[(fEnableMuonMixingHistos ? 12 : 9)].Data(), names[(fEnableMuonMixingHistos ? 13 : 10)].Data(), names[(fEnableMuonMixingHistos ? 14 : 11)].Data());
-            if (fEnableMuonMixingHistos) {
-              names.push_back(Form("PairsMuonMEPM_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEPP_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEMM_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEPM_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEPP_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEMM_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEPM_unambiguous_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEPP_unambiguous_%s", objArray->At(icut)->GetName()));
-              names.push_back(Form("PairsMuonMEMM_unambiguous_%s", objArray->At(icut)->GetName()));
-              histNames += Form("%s;%s;%s;", names[15].Data(), names[16].Data(), names[17].Data());
-              histNames += Form("%s;%s;%s;", names[18].Data(), names[19].Data(), names[20].Data());
-              histNames += Form("%s;%s;%s;", names[21].Data(), names[22].Data(), names[23].Data());
-            }
-            fMuonHistNames[icut] = names;
-
-            TString cutNamesStr = fConfigCuts.pair.value;
-            if (!cutNamesStr.IsNull()) { // if pair cuts
-              std::unique_ptr<TObjArray> objArrayPair(cutNamesStr.Tokenize(","));
-              fNPairCuts = objArrayPair->GetEntries();
-              for (int iPairCut = 0; iPairCut < fNPairCuts; ++iPairCut) { // loop over pair cuts
-                names = {
-                  Form("PairsMuonSEPM_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
-                  Form("PairsMuonSEPP_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
-                  Form("PairsMuonSEMM_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName())};
-                histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
-                fMuonHistNames[fNCutsMuon + icut * fNCutsMuon + iPairCut] = names;
-              } // end loop (pair cuts)
-            } // end if (pair cuts)
           }
         }
-      }
-    }
-
-    LOG(info) << "Initialization of AnalysisSameEventPairing 2 (idstoreh)";
-
-    fCurrentRun = 0;
-
-    fCCDB->setURL(fConfigCCDB.url.value);
-    fCCDB->setCaching(true);
-    fCCDB->setLocalObjectValidityChecking();
-    fCCDBApi.init(fConfigCCDB.url.value);
-
-    if (fConfigOptions.noCorr) {
-      VarManager::SetupFwdDCAFitterNoCorr();
-    } else if (fConfigOptions.corrFullGeo || (fConfigOptions.useKFVertexing && fConfigOptions.propToPCA)) {
-      if (!o2::base::GeometryManager::isGeometryLoaded()) {
-        fCCDB->get<TGeoManager>(fConfigCCDB.geoPath);
-      }
-    } else {
-      fLUT = o2::base::MatLayerCylSet::rectifyPtrFromFile(fCCDB->get<o2::base::MatLayerCylSet>(fConfigCCDB.lutPath));
-      VarManager::SetupMatLUTFwdDCAFitter(fLUT);
-    }
-
-    /*if (context.mOptions.get<bool>("processElectronMuonSkimmed") || context.mOptions.get<bool>("processAllSkimmed")) {
-      TString cutNamesBarrel = fConfigCuts.track.value;
-      TString cutNamesMuon = fConfigCuts.muon.value;
-      if (!cutNamesBarrel.IsNull() && !cutNamesMuon.IsNull()) {
-        std::unique_ptr<TObjArray> objArrayBarrel(cutNamesBarrel.Tokenize(","));
-        std::unique_ptr<TObjArray> objArrayMuon(cutNamesMuon.Tokenize(","));
-        if (objArrayBarrel->GetEntries() == objArrayMuon->GetEntries()) {   // one must specify equal number of barrel and muon cuts
-          for (int icut = 0; icut < objArrayBarrel->GetEntries(); ++icut) { // loop over track cuts
-            // no pair cuts
-            names = {
-              Form("PairsEleMuSEPM_%s_%s", objArrayBarrel->At(icut)->GetName(), objArrayMuon->At(icut)->GetName()),
-              Form("PairsEleMuSEPP_%s_%s", objArrayBarrel->At(icut)->GetName(), objArrayMuon->At(icut)->GetName()),
-              Form("PairsEleMuSEMM_%s_%s", objArrayBarrel->At(icut)->GetName(), objArrayMuon->At(icut)->GetName())};
-            histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
-            fTrackMuonHistNames.push_back(names);
-
-            TString cutNamesStr = fConfigCuts.pair.value;
-            if (!cutNamesStr.IsNull()) { // if pair cuts
-              std::unique_ptr<TObjArray> objArrayPair(cutNamesStr.Tokenize(","));
-              for (int iPairCut = 0; iPairCut < objArrayPair->GetEntries(); ++iPairCut) { // loop over pair cuts
+        LOG(info) << "Initialization of AnalysisSameEventPairing 1 (idstoreh)";
+        
+        // get the muon track selection cuts
+        getTaskOptionValue<string>(context, "analysis-muon-selection", "cfgMuonCuts", tempCuts, false);
+        tempCutsStr = tempCuts;
+        // check also the cuts added via JSON and add them to the string of cuts
+        getTaskOptionValue<string>(context, "analysis-muon-selection", "cfgMuonCutsJSON", tempCuts, false);
+        TString addMuonCutsStr = tempCuts;
+        if (addMuonCutsStr != "") {
+          std::vector<AnalysisCut*> addMuonCuts = dqcuts::GetCutsFromJSON(addMuonCutsStr.Data());
+          for (auto& t : addMuonCuts) {
+            tempCutsStr += Form(",%s", t->GetName());
+          }
+        }
+        
+        if (!muonCutsStr.IsNull()) {
+          std::unique_ptr<TObjArray> objArray(tempCutsStr.Tokenize(","));
+          fNCutsMuon = objArray->GetEntries();
+          for (int icut = 0; icut < objArray->GetEntries(); ++icut) {
+            TString tempStr = objArray->At(icut)->GetName();
+            if (objArrayMuonCuts->FindObject(tempStr.Data()) != nullptr) {
+              fMuonFilterMask |= (static_cast<uint32_t>(1) << icut);
+              
+              if (fEnableMuonHistos) {
+                // no pair cuts
+                names = {
+                  Form("PairsMuonSEPM_%s", objArray->At(icut)->GetName()),
+                Form("PairsMuonSEPP_%s", objArray->At(icut)->GetName()),
+                Form("PairsMuonSEMM_%s", objArray->At(icut)->GetName())};
+                histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
+                if (fEnableMuonMixingHistos) {
+                  names.push_back(Form("PairsMuonMEPM_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEPP_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEMM_%s", objArray->At(icut)->GetName()));
+                  histNames += Form("%s;%s;%s;", names[3].Data(), names[4].Data(), names[5].Data());
+                }
+                names.push_back(Form("PairsMuonSEPM_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsMuonSEPP_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsMuonSEMM_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsMuonSEPM_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsMuonSEPP_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsMuonSEMM_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsMuonSEPM_unambiguous_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsMuonSEPP_unambiguous_%s", objArray->At(icut)->GetName()));
+                names.push_back(Form("PairsMuonSEMM_unambiguous_%s", objArray->At(icut)->GetName()));
+                histNames += Form("%s;%s;%s;", names[(fEnableMuonMixingHistos ? 6 : 3)].Data(), names[(fEnableMuonMixingHistos ? 7 : 4)].Data(), names[(fEnableMuonMixingHistos ? 8 : 5)].Data());
+                histNames += Form("%s;%s;%s;", names[(fEnableMuonMixingHistos ? 9 : 6)].Data(), names[(fEnableMuonMixingHistos ? 10 : 7)].Data(), names[(fEnableMuonMixingHistos ? 11 : 8)].Data());
+                histNames += Form("%s;%s;%s;", names[(fEnableMuonMixingHistos ? 12 : 9)].Data(), names[(fEnableMuonMixingHistos ? 13 : 10)].Data(), names[(fEnableMuonMixingHistos ? 14 : 11)].Data());
+                if (fEnableMuonMixingHistos) {
+                  names.push_back(Form("PairsMuonMEPM_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEPP_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEMM_ambiguousInBunch_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEPM_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEPP_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEMM_ambiguousOutOfBunch_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEPM_unambiguous_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEPP_unambiguous_%s", objArray->At(icut)->GetName()));
+                  names.push_back(Form("PairsMuonMEMM_unambiguous_%s", objArray->At(icut)->GetName()));
+                  histNames += Form("%s;%s;%s;", names[15].Data(), names[16].Data(), names[17].Data());
+                  histNames += Form("%s;%s;%s;", names[18].Data(), names[19].Data(), names[20].Data());
+                  histNames += Form("%s;%s;%s;", names[21].Data(), names[22].Data(), names[23].Data());
+                }
+                fMuonHistNames[icut] = names;
+                
+                TString cutNamesStr = fConfigCuts.pair.value;
+                if (!cutNamesStr.IsNull()) { // if pair cuts
+                  std::unique_ptr<TObjArray> objArrayPair(cutNamesStr.Tokenize(","));
+                  fNPairCuts = objArrayPair->GetEntries();
+                  for (int iPairCut = 0; iPairCut < fNPairCuts; ++iPairCut) { // loop over pair cuts
+                    names = {
+                      Form("PairsMuonSEPM_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
+                      Form("PairsMuonSEPP_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
+                      Form("PairsMuonSEMM_%s_%s", objArray->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName())};
+                      histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
+                      fMuonHistNames[fNCutsMuon + icut * fNCutsMuon + iPairCut] = names;
+                    } // end loop (pair cuts)
+                  } // end if (pair cuts)
+                }
+              }
+            }
+          }
+          
+          LOG(info) << "Initialization of AnalysisSameEventPairing 2 (idstoreh)";
+          
+          fCurrentRun = 0;
+          
+          fCCDB->setURL(fConfigCCDB.url.value);
+          fCCDB->setCaching(true);
+          fCCDB->setLocalObjectValidityChecking();
+          fCCDBApi.init(fConfigCCDB.url.value);
+          
+          if (fConfigOptions.noCorr) {
+            VarManager::SetupFwdDCAFitterNoCorr();
+          } else if (fConfigOptions.corrFullGeo || (fConfigOptions.useKFVertexing && fConfigOptions.propToPCA)) {
+            if (!o2::base::GeometryManager::isGeometryLoaded()) {
+              fCCDB->get<TGeoManager>(fConfigCCDB.geoPath);
+            }
+          } else {
+            fLUT = o2::base::MatLayerCylSet::rectifyPtrFromFile(fCCDB->get<o2::base::MatLayerCylSet>(fConfigCCDB.lutPath));
+            VarManager::SetupMatLUTFwdDCAFitter(fLUT);
+          }
+        
+          /*if (context.mOptions.get<bool>("processElectronMuonSkimmed") || context.mOptions.get<bool>("processAllSkimmed")) {
+            TString cutNamesBarrel = fConfigCuts.track.value;
+            TString cutNamesMuon = fConfigCuts.muon.value;
+            if (!cutNamesBarrel.IsNull() && !cutNamesMuon.IsNull()) {
+              std::unique_ptr<TObjArray> objArrayBarrel(cutNamesBarrel.Tokenize(","));
+              std::unique_ptr<TObjArray> objArrayMuon(cutNamesMuon.Tokenize(","));
+              if (objArrayBarrel->GetEntries() == objArrayMuon->GetEntries()) {   // one must specify equal number of barrel and muon cuts
+              for (int icut = 0; icut < objArrayBarrel->GetEntries(); ++icut) { // loop over track cuts
+              // no pair cuts
+              names = {
+                Form("PairsEleMuSEPM_%s_%s", objArrayBarrel->At(icut)->GetName(), objArrayMuon->At(icut)->GetName()),
+                Form("PairsEleMuSEPP_%s_%s", objArrayBarrel->At(icut)->GetName(), objArrayMuon->At(icut)->GetName()),
+                Form("PairsEleMuSEMM_%s_%s", objArrayBarrel->At(icut)->GetName(), objArrayMuon->At(icut)->GetName())};
+                histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
+                fTrackMuonHistNames.push_back(names);
+                
+                TString cutNamesStr = fConfigCuts.pair.value;
+                if (!cutNamesStr.IsNull()) { // if pair cuts
+                std::unique_ptr<TObjArray> objArrayPair(cutNamesStr.Tokenize(","));
+                for (int iPairCut = 0; iPairCut < objArrayPair->GetEntries(); ++iPairCut) { // loop over pair cuts
                 std::vector<TString> names = {
                   Form("PairsEleMuSEPM_%s_%s_%s", objArrayBarrel->At(icut)->GetName(), objArrayMuon->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
                   Form("PairsEleMuSEPP_%s_%s_%s", objArrayBarrel->At(icut)->GetName(), objArrayMuon->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName()),
                   Form("PairsEleMuSEMM_%s_%s_%s", objArrayBarrel->At(icut)->GetName(), objArrayMuon->At(icut)->GetName(), objArrayPair->At(iPairCut)->GetName())};
-                histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
-                fTrackMuonHistNames.push_back(names);
-              } // end loop (pair cuts)
-            }   // end if (pair cuts)
-          }     // end loop (track cuts)
-        }       // end if (equal number of cuts)
-      }         // end if (track cuts)
-    }*/
-
-    if (fConfigQA) {
-      fHistMan = new HistogramManager("analysisHistos", "aa", VarManager::kNVars);
-      fHistMan->SetUseDefaultVariableNames(true);
-      fHistMan->SetDefaultVarNames(VarManager::fgVariableNames, VarManager::fgVariableUnits);
-      VarManager::SetCollisionSystem((TString)fConfigOptions.collisionSystem, fConfigOptions.centerMassEnergy); // set collision system and center of mass energy
-      DefineHistograms(fHistMan, histNames.Data(), fConfigAddSEPHistogram.value.data());                        // define all histograms
+                  histNames += Form("%s;%s;%s;", names[0].Data(), names[1].Data(), names[2].Data());
+                  fTrackMuonHistNames.push_back(names);
+                  } // end loop (pair cuts)
+                  }   // end if (pair cuts)
+                  }     // end loop (track cuts)
+                  }       // end if (equal number of cuts)
+                  }         // end if (track cuts)
+                  }*/
+                  
+                  if (fConfigQA) {
+                    fHistMan = new HistogramManager("analysisHistos", "aa", VarManager::kNVars);
+                    fHistMan->SetUseDefaultVariableNames(true);
+                    fHistMan->SetDefaultVarNames(VarManager::fgVariableNames, VarManager::fgVariableUnits);
+                    VarManager::SetCollisionSystem((TString)fConfigOptions.collisionSystem, fConfigOptions.centerMassEnergy); // set collision system and center of mass energy
+                    DefineHistograms(fHistMan, histNames.Data(), fConfigAddSEPHistogram.value.data());                        // define all histograms
       dqhistograms::AddHistogramsFromJSON(fHistMan, fConfigAddJSONHistograms.value.c_str());                    // ad-hoc histograms via JSON
       VarManager::SetUseVars(fHistMan->GetUsedVars());                                                          // provide the list of required variables so that VarManager knows what to fill
       fOutputList.setObject(fHistMan->GetMainHistogramList());
+      // In AnalysisSameEventPairing::init()
+      TString histDirNames = "";
+      for (auto& cut : fTrackCuts) {
+        histDirNames += Form("TrackBarrel_%s_efromJPsi;", cut.Data());
+      }
+      DefineHistograms(fHistMan, histDirNames.Data(), fConfigAddLegTrackHistogram.value.data()); // or with your desired groups
     }
     LOG(info) << "Finished initialization of AnalysisSameEventPairing (idstoreh)";
   }
-
+  
   void initParamsFromCCDB(uint64_t timestamp, int runNumber, bool withTwoProngFitter = true)
   {
-
+    
     if (fConfigOptions.useRemoteField.value) {
       o2::parameters::GRPMagField* grpmag = fCCDB->getForTimeStamp<o2::parameters::GRPMagField>(fConfigCCDB.grpMagPath, timestamp);
       float magField = 0.0;
@@ -1677,6 +1689,30 @@ struct AnalysisSameEventPairing {
           }
           if constexpr (eventHasQvectorCentr) {
             VarManager::FillPairVn<TEventFillMap, TPairType>(t1, t2);
+          }
+
+          // --- Mass filter ---
+          float pairMass = VarManager::fgValues[VarManager::kMass];
+          if (pairMass < fConfigPairMassMin || pairMass > fConfigPairMassMax) {
+            continue;
+          }
+          
+          // skip same-sign pairs
+          if (t1.sign() * t2.sign() >= 0) {
+              continue; 
+          }
+
+          for (int icut = 0; icut < fNCutsBarrel; icut++) {
+            if (twoTrackFilter & (static_cast<uint32_t>(1) << icut)) {
+              float trackValues[VarManager::kNBarrelTrackVariables];
+              VarManager::ResetValues(0, VarManager::kNBarrelTrackVariables, trackValues);
+              VarManager::FillTrack<TTrackFillMap>(t1, trackValues);
+              fHistMan->FillHistClass(Form("TrackBarrel_%s_efromJPsi", fTrackCuts[icut].Data()), trackValues);
+
+              VarManager::ResetValues(0, VarManager::kNBarrelTrackVariables, trackValues);
+              VarManager::FillTrack<TTrackFillMap>(t2, trackValues);
+              fHistMan->FillHistClass(Form("TrackBarrel_%s_efromJPsi", fTrackCuts[icut].Data()), trackValues);
+            }
           }
 
           dielectronList(event.globalIndex(), VarManager::fgValues[VarManager::kMass],
